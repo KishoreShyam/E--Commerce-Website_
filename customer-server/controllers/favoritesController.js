@@ -1,10 +1,10 @@
-const memoryDB = require('../utils/memoryDB');
+const fileDB = require('../utils/fileDB');
 const { validationResult } = require('express-validator');
 
 // Get user's favorites
 const getFavorites = async (req, res) => {
   try {
-    const favorites = memoryDB.getUserFavorites(req.user.id);
+    const favorites = fileDB.getUserFavorites(req.user.id);
 
     res.json({
       success: true,
@@ -45,7 +45,7 @@ const addFavorite = async (req, res) => {
       reviewCount: req.body.reviewCount || 0
     };
 
-    const favorites = memoryDB.addFavorite(req.user.id, productData);
+    const favorites = fileDB.addFavorite(req.user.id, productData);
 
     res.status(201).json({
       success: true,
@@ -66,7 +66,7 @@ const removeFavorite = async (req, res) => {
   try {
     const { productId } = req.params;
 
-    const favorites = memoryDB.removeFavorite(req.user.id, productId);
+    const favorites = fileDB.removeFavorite(req.user.id, productId);
 
     res.json({
       success: true,
@@ -84,7 +84,7 @@ const removeFavorite = async (req, res) => {
 // Clear all favorites
 const clearFavorites = async (req, res) => {
   try {
-    memoryDB.clearFavorites(req.user.id);
+    fileDB.clearFavorites(req.user.id);
 
     res.json({
       success: true,
@@ -103,7 +103,7 @@ const clearFavorites = async (req, res) => {
 const checkFavorite = async (req, res) => {
   try {
     const { productId } = req.params;
-    const favorites = memoryDB.getUserFavorites(req.user.id);
+    const favorites = fileDB.getUserFavorites(req.user.id);
     const isFavorite = favorites.some(fav => fav._id === productId);
 
     res.json({

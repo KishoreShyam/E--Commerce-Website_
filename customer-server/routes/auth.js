@@ -18,21 +18,25 @@ const { validate } = require('../middleware/validation');
 
 const router = express.Router();
 
-// Validation rules - Flexible for any email and password
+// Very flexible validation rules - accept any email format and any password
 const registerValidation = [
   body('firstName')
     .trim()
-    .isLength({ min: 1, max: 100 })
+    .notEmpty()
     .withMessage('First name is required'),
   body('lastName')
     .trim()
-    .isLength({ min: 1, max: 100 })
+    .notEmpty()
     .withMessage('Last name is required'),
   body('email')
     .trim()
-    .isLength({ min: 1 })
-    .withMessage('Email is required'),
+    .notEmpty()
+    .withMessage('Email is required')
+    .isLength({ min: 3 })
+    .withMessage('Email must be at least 3 characters'),
   body('password')
+    .notEmpty()
+    .withMessage('Password is required')
     .isLength({ min: 1 })
     .withMessage('Password is required'),
   body('phone')
@@ -42,7 +46,7 @@ const registerValidation = [
 const loginValidation = [
   body('email')
     .trim()
-    .isLength({ min: 1 })
+    .notEmpty()
     .withMessage('Email is required'),
   body('password')
     .notEmpty()
@@ -53,17 +57,15 @@ const updateProfileValidation = [
   body('firstName')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('First name must be between 2 and 50 characters'),
+    .isLength({ min: 1, max: 50 })
+    .withMessage('First name must be between 1 and 50 characters'),
   body('lastName')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Last name must be between 2 and 50 characters'),
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Last name must be between 1 and 50 characters'),
   body('phone')
     .optional()
-    .isMobilePhone()
-    .withMessage('Please provide a valid phone number')
 ];
 
 const updatePasswordValidation = [
@@ -71,30 +73,26 @@ const updatePasswordValidation = [
     .notEmpty()
     .withMessage('Current password is required'),
   body('newPassword')
-    .isLength({ min: 6 })
-    .withMessage('New password must be at least 6 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number')
+    .isLength({ min: 1 })
+    .withMessage('New password is required')
 ];
 
 const forgotPasswordValidation = [
   body('email')
-    .isEmail()
-    .normalizeEmail()
-    .withMessage('Please provide a valid email')
+    .trim()
+    .notEmpty()
+    .withMessage('Email is required')
 ];
 
 const resetPasswordValidation = [
   body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+    .isLength({ min: 1 })
+    .withMessage('Password is required')
 ];
 
 // Public routes
 router.post('/register', registerValidation, validate, register);
-router.post('/login', loginValidation, validate, sensitiveOperationLimit(5, 15 * 60 * 1000), login);
+router.post('/login', loginValidation, validate, sensitiveOperationLimit(10, 15 * 60 * 1000), login);
 router.post('/logout', logout);
 router.post('/forgot-password', forgotPasswordValidation, validate, sensitiveOperationLimit(3, 60 * 60 * 1000), forgotPassword);
 router.put('/reset-password/:token', resetPasswordValidation, validate, resetPassword);

@@ -1,5 +1,4 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -13,7 +12,20 @@ const http = require('http');
 const socketIo = require('socket.io');
 require('dotenv').config();
 
-// Import routes will be done inline to avoid module loading issues
+// Initialize file database
+const fileDB = require('./utils/fileDB');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const productRoutes = require('./routes/products');
+const categoryRoutes = require('./routes/categories');
+const cartRoutes = require('./routes/cart');
+const orderRoutes = require('./routes/orders');
+const userRoutes = require('./routes/users');
+const reviewRoutes = require('./routes/reviews');
+const addressRoutes = require('./routes/addresses');
+const favoriteRoutes = require('./routes/favorites');
+const notificationRoutes = require('./routes/notifications');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -28,7 +40,10 @@ const server = http.createServer(app);
 // Socket.IO setup
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: [
+      process.env.CLIENT_URL || "http://localhost:3000",
+      process.env.ADMIN_SERVER_URL || "http://localhost:5001"
+    ],
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -40,6 +55,11 @@ app.set('io', io);
 // Socket handling
 socketHandler(io);
 
+// Initialize default users on startup
+console.log('🔧 Initializing file database...');
+fileDB.initializeDefaultUsers();
+console.log('✅ File database initialized');
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -47,7 +67,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
+      imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://images.unsplash.com"],
       scriptSrc: ["'self'"],
       connectSrc: ["'self'", "ws:", "wss:"]
     }
@@ -63,7 +83,11 @@ const limiter = rateLimit({
     retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000) / 1000)
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
 });
 
 app.use('/api/', limiter);
@@ -115,49 +139,40 @@ app.use(hpp({
   whitelist: ['sort', 'fields', 'page', 'limit', 'category', 'price', 'rating']
 }));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/luxecommerce', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => {
-  console.log('✅ Connected to MongoDB');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error);
-  process.exit(1);
-});
-
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const users = fileDB.getUsers();
   res.status(200).json({
     success: true,
     message: 'LuxeCommerce Customer Server is running',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    userCount: users.length,
+    version: '1.0.0'
   });
 });
 
 // API routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/products', require('./routes/products'));
-app.use('/api/categories', require('./routes/categories'));
-app.use('/api/cart', require('./routes/cart'));
-app.use('/api/orders', require('./routes/orders'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/reviews', require('./routes/reviews'));
-app.use('/api/addresses', require('./routes/addresses'));
-app.use('/api/favorites', require('./routes/favorites'));
-app.use('/api/notifications', require('./routes/notifications'));
-app.use('/api/addresses', require('./routes/addresses'));
+app.use('/api/auth', authRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/addresses', addressRoutes);
+app.use('/api/favorites', favoriteRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Welcome route
 app.get('/', (req, res) => {
+  const users = fileDB.getUsers();
   res.json({
     success: true,
     message: 'Welcome to LuxeCommerce Customer API',
     version: '1.0.0',
+    userCount: users.length,
     documentation: '/api/docs',
     endpoints: {
       auth: '/api/auth',
@@ -166,9 +181,13 @@ app.get('/', (req, res) => {
       users: '/api/users',
       cart: '/api/cart',
       reviews: '/api/reviews',
-      payments: '/api/payments',
       notifications: '/api/notifications',
-      addresses: '/api/addresses'
+      addresses: '/api/addresses',
+      favorites: '/api/favorites'
+    },
+    defaultCredentials: {
+      admin: 'admin@luxecommerce.com / AdminPassword123!',
+      customer: 'john.doe@example.com / Password123!'
     }
   });
 });
@@ -182,7 +201,6 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM received. Shutting down gracefully...');
   server.close(() => {
     console.log('Process terminated');
-    mongoose.connection.close();
   });
 });
 
@@ -190,7 +208,6 @@ process.on('SIGINT', () => {
   console.log('SIGINT received. Shutting down gracefully...');
   server.close(() => {
     console.log('Process terminated');
-    mongoose.connection.close();
   });
 });
 
@@ -200,4 +217,7 @@ server.listen(PORT, () => {
   console.log(`🚀 LuxeCommerce Customer Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`👥 Registered users: ${fileDB.getUsers().length}`);
+  console.log(`🔐 Default admin: admin@luxecommerce.com / AdminPassword123!`);
+  console.log(`👤 Default customer: john.doe@example.com / Password123!`);
 });

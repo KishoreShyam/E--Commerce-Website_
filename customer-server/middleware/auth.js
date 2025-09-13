@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const fileDB = require('../utils/fileDB');
 
 // Protect routes - require authentication
 const protect = async (req, res, next) => {
@@ -25,10 +25,10 @@ const protect = async (req, res, next) => {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
 
-      // Get user from token
-      const user = await User.findById(decoded.id).select('-password');
+      // Get user from file database
+      const user = fileDB.findUserById(decoded.id);
 
       if (!user) {
         return res.status(401).json({
@@ -45,17 +45,10 @@ const protect = async (req, res, next) => {
         });
       }
 
-      // Check if user is verified (if verification is required)
-      if (!user.isVerified && process.env.REQUIRE_EMAIL_VERIFICATION === 'true') {
-        return res.status(401).json({
-          success: false,
-          message: 'Please verify your email address to access this resource'
-        });
-      }
-
       req.user = user;
       next();
     } catch (error) {
+      console.error('Token verification error:', error);
       return res.status(401).json({
         success: false,
         message: 'Not authorized to access this route'
@@ -92,8 +85,8 @@ const optionalAuth = async (req, res, next) => {
 
     if (token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id).select('-password');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+        const user = fileDB.findUserById(decoded.id);
         
         if (user && !user.isLocked) {
           req.user = user;
@@ -151,7 +144,7 @@ const sensitiveOperationLimit = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => 
   const attempts = new Map();
 
   return (req, res, next) => {
-    const key = req.ip + ':' + req.user.id;
+    const key = req.ip + ':' + (req.user ? req.user.id : 'anonymous');
     const now = Date.now();
     
     if (!attempts.has(key)) {

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const memoryDB = require('../utils/memoryDB');
+const fileDB = require('../utils/fileDB');
 const { hashPassword, comparePassword } = require('../utils/bcryptUtils');
 
 // Mock sendEmail function for development
@@ -20,8 +20,16 @@ const register = async (req, res, next) => {
   try {
     const { firstName, lastName, email, password, phone } = req.body;
 
-    // Check if user already exists (allow any email format)
-    const existingUser = memoryDB.findUserByEmail(email);
+    // Validate required fields
+    if (!firstName || !lastName || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields: firstName, lastName, email, password'
+      });
+    }
+
+    // Check if user already exists (case-insensitive)
+    const existingUser = fileDB.findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -33,13 +41,16 @@ const register = async (req, res, next) => {
     const hashedPassword = await hashPassword(password);
 
     // Create user
-    const user = memoryDB.createUser({
-      firstName,
-      lastName,
-      email,
+    const user = fileDB.createUser({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
-      phone
+      phone: phone ? phone.trim() : null,
+      role: 'customer'
     });
+
+    console.log('✅ User registered successfully:', user.email);
 
     // Generate JWT token
     const token = jwt.sign(
@@ -48,7 +59,7 @@ const register = async (req, res, next) => {
         email: user.email,
         role: user.role
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'fallback-secret-key',
       { 
         expiresIn: process.env.JWT_EXPIRE || '30d'
       }
@@ -84,26 +95,42 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    // Check for user
-    const user = memoryDB.findUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Please provide email and password'
       });
     }
+
+    console.log('🔐 Login attempt for:', email);
+
+    // Check for user (case-insensitive)
+    const user = fileDB.findUserByEmail(email);
+    if (!user) {
+      console.log('❌ User not found:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    console.log('👤 User found:', user.email);
 
     // Check password
     const isMatch = await comparePassword(password, user.password);
     if (!isMatch) {
+      console.log('❌ Password mismatch for:', email);
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Invalid email or password'
       });
     }
 
+    console.log('✅ Password verified for:', email);
+
     // Update last login
-    memoryDB.updateUser(user._id, { lastLogin: new Date() });
+    fileDB.updateUser(user._id, { lastLogin: new Date().toISOString() });
 
     // Generate JWT token
     const token = jwt.sign(
@@ -112,11 +139,13 @@ const login = async (req, res, next) => {
         email: user.email,
         role: user.role
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'fallback-secret-key',
       { 
         expiresIn: process.env.JWT_EXPIRE || '30d'
       }
     );
+
+    console.log('🎫 Token generated for:', email);
 
     res.status(200).json({
       success: true,
@@ -162,7 +191,7 @@ const logout = (req, res) => {
 // @access  Private
 const getMe = async (req, res, next) => {
   try {
-    const user = memoryDB.findUserById(req.user.id);
+    const user = fileDB.findUserById(req.user.id);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -207,7 +236,7 @@ const updateProfile = async (req, res, next) => {
       fieldsToUpdate[key] === undefined && delete fieldsToUpdate[key]
     );
 
-    const user = memoryDB.updateUser(req.user.id, fieldsToUpdate);
+    const user = fileDB.updateUser(req.user.id, fieldsToUpdate);
     
     if (!user) {
       return res.status(404).json({
@@ -244,7 +273,7 @@ const updateProfile = async (req, res, next) => {
 // @access  Private
 const updatePassword = async (req, res, next) => {
   try {
-    const user = memoryDB.findUserById(req.user.id);
+    const user = fileDB.findUserById(req.user.id);
     
     if (!user) {
       return res.status(404).json({
@@ -265,8 +294,8 @@ const updatePassword = async (req, res, next) => {
     // Hash new password
     const hashedPassword = await hashPassword(req.body.newPassword);
     
-    // Update password in memory
-    memoryDB.updateUser(user._id, { password: hashedPassword });
+    // Update password in file
+    fileDB.updateUser(user._id, { password: hashedPassword });
 
     // Generate new token
     const token = jwt.sign(
@@ -275,7 +304,7 @@ const updatePassword = async (req, res, next) => {
         email: user.email,
         role: user.role
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'fallback-secret-key',
       { 
         expiresIn: process.env.JWT_EXPIRE || '30d'
       }
@@ -300,7 +329,7 @@ const updatePassword = async (req, res, next) => {
 // @access  Public
 const forgotPassword = async (req, res, next) => {
   try {
-    const user = await User.findOne({ email: req.body.email });
+    const user = fileDB.findUserByEmail(req.body.email);
 
     if (!user) {
       return res.status(404).json({
@@ -309,9 +338,15 @@ const forgotPassword = async (req, res, next) => {
       });
     }
 
-    // Get reset token
-    const resetToken = user.generatePasswordResetToken();
-    await user.save();
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    // Save reset token to user
+    fileDB.updateUser(user._id, {
+      passwordResetToken: hashedToken,
+      passwordResetExpires: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes
+    });
 
     // Create reset URL
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
@@ -334,9 +369,10 @@ const forgotPassword = async (req, res, next) => {
       });
     } catch (error) {
       console.error('Email sending failed:', error);
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
-      await user.save();
+      fileDB.updateUser(user._id, {
+        passwordResetToken: null,
+        passwordResetExpires: null
+      });
 
       return res.status(500).json({
         success: false,
@@ -359,10 +395,11 @@ const resetPassword = async (req, res, next) => {
       .update(req.params.token)
       .digest('hex');
 
-    const user = await User.findOne({
-      passwordResetToken: resetPasswordToken,
-      passwordResetExpires: { $gt: Date.now() }
-    });
+    const users = fileDB.getUsers();
+    const user = users.find(u => 
+      u.passwordResetToken === resetPasswordToken &&
+      new Date(u.passwordResetExpires) > new Date()
+    );
 
     if (!user) {
       return res.status(400).json({
@@ -371,15 +408,28 @@ const resetPassword = async (req, res, next) => {
       });
     }
 
-    // Set new password
-    user.password = req.body.password;
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
-    await user.save();
+    // Hash new password
+    const hashedPassword = await hashPassword(req.body.password);
+
+    // Update user
+    fileDB.updateUser(user._id, {
+      password: hashedPassword,
+      passwordResetToken: null,
+      passwordResetExpires: null
+    });
 
     // Generate JWT token
-    const token = user.generateAuthToken();
-    setTokenCookie(res, token);
+    const token = jwt.sign(
+      { 
+        id: user._id,
+        email: user.email,
+        role: user.role
+      },
+      process.env.JWT_SECRET || 'fallback-secret-key',
+      { 
+        expiresIn: process.env.JWT_EXPIRE || '30d'
+      }
+    );
 
     res.status(200).json({
       success: true,
@@ -402,10 +452,11 @@ const verifyEmail = async (req, res, next) => {
       .update(req.params.token)
       .digest('hex');
 
-    const user = await User.findOne({
-      emailVerificationToken,
-      emailVerificationExpires: { $gt: Date.now() }
-    });
+    const users = fileDB.getUsers();
+    const user = users.find(u => 
+      u.emailVerificationToken === emailVerificationToken &&
+      new Date(u.emailVerificationExpires) > new Date()
+    );
 
     if (!user) {
       return res.status(400).json({
@@ -415,10 +466,11 @@ const verifyEmail = async (req, res, next) => {
     }
 
     // Verify user
-    user.isVerified = true;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpires = undefined;
-    await user.save();
+    fileDB.updateUser(user._id, {
+      isVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpires: null
+    });
 
     res.status(200).json({
       success: true,
@@ -434,7 +486,7 @@ const verifyEmail = async (req, res, next) => {
 // @access  Public
 const resendVerification = async (req, res, next) => {
   try {
-    const user = await User.findOne({ email: req.body.email });
+    const user = fileDB.findUserByEmail(req.body.email);
 
     if (!user) {
       return res.status(404).json({
@@ -451,8 +503,13 @@ const resendVerification = async (req, res, next) => {
     }
 
     // Generate new verification token
-    const verificationToken = user.generateEmailVerificationToken();
-    await user.save();
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
+
+    fileDB.updateUser(user._id, {
+      emailVerificationToken: hashedToken,
+      emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
+    });
 
     // Send verification email
     const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${verificationToken}`;
@@ -505,8 +562,8 @@ const refreshToken = async (req, res, next) => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
-      const user = await User.findById(decoded.id);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key', { ignoreExpiration: true });
+      const user = fileDB.findUserById(decoded.id);
 
       if (!user) {
         return res.status(401).json({
@@ -516,8 +573,17 @@ const refreshToken = async (req, res, next) => {
       }
 
       // Generate new token
-      const newToken = user.generateAuthToken();
-      setTokenCookie(res, newToken);
+      const newToken = jwt.sign(
+        { 
+          id: user._id,
+          email: user.email,
+          role: user.role
+        },
+        process.env.JWT_SECRET || 'fallback-secret-key',
+        { 
+          expiresIn: process.env.JWT_EXPIRE || '30d'
+        }
+      );
 
       res.status(200).json({
         success: true,
