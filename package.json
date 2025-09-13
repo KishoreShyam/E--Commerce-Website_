@@ -1,0 +1,23 @@
+{
+  "name": "luxe-commerce",
+  "version": "1.0.0",
+  "description": "Premium E-Commerce Platform with Advanced Features",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:customer-server\" \"npm run dev:admin-server\"",
+    "dev:client": "cd client && npm run dev",
+    "dev:customer-server": "cd customer-server && npm run dev",
+    "dev:admin-server": "cd admin-server && npm run dev",
+    "install:all": "npm install && cd client && npm install && cd ../customer-server && npm install && cd ../admin-server && npm install",
+    "build": "cd client && npm run build",
+    "start": "concurrently \"npm run start:customer-server\" \"npm run start:admin-server\"",
+    "start:customer-server": "cd customer-server && npm start",
+    "start:admin-server": "cd admin-server && npm start"
+  },
+  "keywords": ["ecommerce", "react", "nodejs", "mongodb", "premium"],
+  "author": "LuxeCommerce Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
