@@ -40,7 +40,8 @@ const io = socketIo(server, {
   cors: {
     origin: [
       process.env.ADMIN_DASHBOARD_URL || "http://localhost:3001",
-      process.env.CUSTOMER_SERVER_URL || "http://localhost:5000"
+      process.env.CUSTOMER_SERVER_URL || "http://localhost:5000",
+      "http://localhost:3000"
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -52,6 +53,52 @@ app.set('io', io);
 
 // Admin socket handling
 adminSocketHandler(io);
+
+// Connect to customer server's socket for real-time sync
+const customerSocketClient = require('socket.io-client');
+const customerSocket = customerSocketClient(process.env.CUSTOMER_SERVER_URL || 'http://localhost:5000', {
+  auth: {
+    token: 'admin-server-token' // You might want to use a proper service token
+  },
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionAttempts: 5
+});
+
+customerSocket.on('connect', () => {
+  console.log('🔗 Connected to customer server for real-time sync');
+});
+
+customerSocket.on('disconnect', () => {
+  console.log('🔌 Disconnected from customer server');
+});
+
+// Listen for product updates from customer server
+customerSocket.on('product:created', (data) => {
+  console.log('📦 Product created on customer server:', data.product?.name);
+  io.to('admin:dashboard').emit('product:created', data);
+});
+
+customerSocket.on('product:updated', (data) => {
+  console.log('📝 Product updated on customer server:', data.product?.name);
+  io.to('admin:dashboard').emit('product:updated', data);
+});
+
+customerSocket.on('product:deleted', (data) => {
+  console.log('🗑️ Product deleted on customer server:', data.productId);
+  io.to('admin:dashboard').emit('product:deleted', data);
+});
+
+// Listen for order updates from customer server
+customerSocket.on('order:created', (data) => {
+  console.log('🛒 New order placed on customer server:', data.order?.orderNumber);
+  io.to('admin:dashboard').emit('order:new', data);
+});
+
+customerSocket.on('order:updated', (data) => {
+  console.log('📋 Order updated on customer server:', data.orderId);
+  io.to('admin:dashboard').emit('order:updated', data);
+});
 
 // Security middleware
 app.use(helmet({

@@ -1,80 +1,66 @@
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const fileDB = require('../utils/fileDB');
 
 // @desc    Get all products with filtering, sorting, and pagination
 // @route   GET /api/products
 // @access  Public
 const getProducts = async (req, res, next) => {
   try {
-    const {
-      page = 1,
-      limit = 12,
-      sort = '-createdAt',
-      category,
-      minPrice,
-      maxPrice,
-      rating,
-      brand,
-      featured,
-      status = 'active'
-    } = req.query;
-
-    // Build filter object
-    const filter = { status };
-
+    // Get products from file database
+    const products = fileDB.getProducts();
+    
+    // Apply filters
+    let filteredProducts = products.filter(product => product.status === 'active');
+    
+    const { category, search, minPrice, maxPrice, featured } = req.query;
+    
     if (category) {
-      filter.category = category;
+      filteredProducts = filteredProducts.filter(p => p.category === category);
     }
-
-    if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = parseFloat(minPrice);
-      if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+    
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredProducts = filteredProducts.filter(p => 
+        p.name.toLowerCase().includes(searchLower) ||
+        p.description.toLowerCase().includes(searchLower)
+      );
     }
-
-    if (rating) {
-      filter['rating.average'] = { $gte: parseFloat(rating) };
+    
+    if (minPrice) {
+      filteredProducts = filteredProducts.filter(p => p.price >= parseFloat(minPrice));
     }
-
-    if (brand) {
-      filter.brand = new RegExp(brand, 'i');
+    
+    if (maxPrice) {
+      filteredProducts = filteredProducts.filter(p => p.price <= parseFloat(maxPrice));
     }
-
+    
     if (featured === 'true') {
-      filter.featured = true;
+      filteredProducts = filteredProducts.filter(p => p.featured);
     }
-
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Execute query
-    const products = await Product.find(filter)
-      .populate('category', 'name slug')
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-createdBy -updatedBy');
-
-    // Get total count for pagination
-    const total = await Product.countDocuments(filter);
-
-    // Calculate pagination info
-    const totalPages = Math.ceil(total / parseInt(limit));
-    const hasNextPage = parseInt(page) < totalPages;
-    const hasPrevPage = parseInt(page) > 1;
+    
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12;
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    
+    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+    const total = filteredProducts.length;
+    const totalPages = Math.ceil(total / limit);
 
     res.status(200).json({
       success: true,
-      count: products.length,
+      count: paginatedProducts.length,
       total,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         totalPages,
-        hasNextPage,
-        hasPrevPage
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
       },
-      products
+      products: paginatedProducts
     });
   } catch (error) {
     next(error);
@@ -86,34 +72,12 @@ const getProducts = async (req, res, next) => {
 // @access  Public
 const getProduct = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id)
-      .populate('category', 'name slug')
-      .populate('reviews', 'rating comment user createdAt', null, { limit: 5, sort: { createdAt: -1 } })
-      .populate('relatedProducts', 'name price images rating')
-      .select('-createdBy -updatedBy');
+    const product = fileDB.getProductById(req.params.id);
 
     if (!product) {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
-      });
-    }
-
-    // Add to recently viewed if user is authenticated
-    if (req.user) {
-      await req.user.addRecentlyViewed(product._id);
-    }
-
-    // Increment view count
-    await product.incrementViews();
-
-    // Emit real-time event for analytics
-    if (req.app.get('io')) {
-      req.app.get('io').emitToAdmin('product:viewed', {
-        productId: product._id,
-        productName: product.name,
-        userId: req.user?._id,
-        timestamp: new Date()
       });
     }
 
@@ -126,69 +90,117 @@ const getProduct = async (req, res, next) => {
   }
 };
 
+// @desc    Create new product (Admin only)
+// @route   POST /api/products
+// @access  Private (Admin)
+const createProduct = async (req, res, next) => {
+  try {
+    const productData = {
+      ...req.body,
+      createdBy: req.user.id,
+      createdAt: new Date().toISOString()
+    };
+    
+    const product = fileDB.createProduct(productData);
+    
+    // Emit real-time update to customer server
+    if (req.app.get('io')) {
+      req.app.get('io').emit('product:created', {
+        product,
+        timestamp: new Date()
+      });
+    }
+    
+    res.status(201).json({
+      success: true,
+      message: 'Product created successfully',
+      product
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Update product (Admin only)
+// @route   PUT /api/products/:id
+// @access  Private (Admin)
+const updateProduct = async (req, res, next) => {
+  try {
+    const product = fileDB.updateProduct(req.params.id, {
+      ...req.body,
+      updatedBy: req.user.id,
+      updatedAt: new Date().toISOString()
+    });
+    
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+    
+    // Emit real-time update
+    if (req.app.get('io')) {
+      req.app.get('io').emit('product:updated', {
+        product,
+        timestamp: new Date()
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Product updated successfully',
+      product
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Delete product (Admin only)
+// @route   DELETE /api/products/:id
+// @access  Private (Admin)
+const deleteProduct = async (req, res, next) => {
+  try {
+    const success = fileDB.deleteProduct(req.params.id);
+    
+    if (!success) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+    
+    // Emit real-time update
+    if (req.app.get('io')) {
+      req.app.get('io').emit('product:deleted', {
+        productId: req.params.id,
+        timestamp: new Date()
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Product deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Search products
 // @route   GET /api/products/search
 // @access  Public
 const searchProducts = async (req, res, next) => {
   try {
-    const {
-      q,
-      page = 1,
-      limit = 12,
-      sort = '-createdAt',
-      category,
-      minPrice,
-      maxPrice,
-      rating,
-      brand
-    } = req.query;
-
-    if (!q) {
-      return res.status(400).json({
-        success: false,
-        message: 'Search query is required'
-      });
-    }
-
-    // Build search filter
-    const filter = {
-      status: 'active',
-      $text: { $search: q }
-    };
-
-    // Add additional filters
-    if (category) filter.category = category;
-    if (brand) filter.brand = new RegExp(brand, 'i');
-    if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = parseFloat(minPrice);
-      if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
-    }
-    if (rating) filter['rating.average'] = { $gte: parseFloat(rating) };
-
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Execute search
-    const products = await Product.find(filter, { score: { $meta: 'textScore' } })
-      .populate('category', 'name slug')
-      .sort({ score: { $meta: 'textScore' }, ...parseSortString(sort) })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-createdBy -updatedBy');
-
-    const total = await Product.countDocuments(filter);
+    const { q } = req.query;
+    const products = fileDB.searchProducts(q);
 
     res.status(200).json({
       success: true,
       count: products.length,
-      total,
+      total: products.length,
       query: q,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit))
-      },
       products
     });
   } catch (error) {
@@ -419,6 +431,9 @@ const parseSortString = (sortStr) => {
 module.exports = {
   getProducts,
   getProduct,
+  createProduct,
+  updateProduct,
+  deleteProduct,
   searchProducts,
   getProductsByCategory,
   getFeaturedProducts,

@@ -29,14 +29,14 @@ A fully functional, modern e-commerce platform built with React, Node.js, Expres
 ## 🏗️ Architecture
 
 ### Dual Server Architecture
-- **Customer Server** (Port 5000): Handles all customer-facing operations
-- **Admin Server** (Port 5001): Dedicated admin operations with enhanced security
-- **Database**: Shared MongoDB instance with proper data isolation
+- **Customer Server** (Port 5003): Handles all customer-facing operations
+- **Admin Server** (Port 3002): Dedicated admin operations with enhanced security  
+- **Database**: Shared file-based database with real-time synchronization
 - **Real-time**: Separate Socket.IO instances for customer and admin features
 
 ### Frontend Applications
-- **Customer Store** (Port 3000): React SPA with modern animations
-- **Admin Dashboard** (Port 3001): React admin interface with advanced controls
+- **Customer Store** (Port 3003): React SPA with modern animations  
+- **Admin Dashboard** (Port 3002): React admin interface with advanced controls
 
 ## 🛠️ Tech Stack
 
@@ -153,7 +153,7 @@ STRIPE_SECRET_KEY=sk_test_your-secret-key
 # URLs
 CLIENT_URL=http://localhost:3000
 ADMIN_URL=http://localhost:3001
-ADMIN_SERVER_URL=http://localhost:5001
+ADMIN_SERVER_URL=http://localhost:3002
 
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=900000
@@ -187,11 +187,11 @@ JWT_EXPIRE=30d
 JWT_COOKIE_EXPIRE=30
 
 # Customer Server
-CUSTOMER_SERVER_URL=http://localhost:5000
+CUSTOMER_SERVER_URL=http://localhost:5003
 
 # URLs
 CLIENT_URL=http://localhost:3000
-ADMIN_URL=http://localhost:3001
+ADMIN_URL=http://localhost:3002
 
 # Rate Limiting (more generous for admin)
 RATE_LIMIT_WINDOW_MS=900000
@@ -250,10 +250,10 @@ npm run dev
 ```
 
 This starts:
-- Customer frontend on http://localhost:3000
-- Admin dashboard on http://localhost:3001
-- Customer server on http://localhost:5000
-- Admin server on http://localhost:5001
+- Customer frontend on http://localhost:3003
+- Admin dashboard on http://localhost:3002  
+- Customer server on http://localhost:5003
+- Admin server on http://localhost:3002
 
 #### Option 2: Start Services Individually
 ```bash
@@ -263,20 +263,20 @@ npm start
 
 # Terminal 2: Admin Dashboard
 cd admin-dashboard
-npm start
+PORT=3002 npm start
 
 # Terminal 3: Customer Server
 cd customer-server
-npm run dev
+PORT=5003 npm run dev
 
 # Terminal 4: Admin Server
 cd admin-server
-npm run dev
+PORT=3002 npm run dev
 ```
 
 ## 🌐 Access Points & Usage
 
-### Customer Store (http://localhost:3000)
+### Customer Store (http://localhost:3003)
 - **Homepage**: Featured products and categories
 - **Products**: Browse and search products
 - **Product Details**: Detailed product information
@@ -286,7 +286,7 @@ npm run dev
 - **Profile**: Manage account and addresses
 - **Orders**: Order history and tracking
 
-### Admin Dashboard (http://localhost:3001)
+### Admin Dashboard (http://localhost:3002)
 - **Login**: Admin authentication
 - **Dashboard**: Analytics and overview
 - **Products**: Manage product catalog
@@ -298,7 +298,7 @@ npm run dev
 
 ### API Endpoints
 
-#### Customer API (http://localhost:5000/api)
+#### Customer API (http://localhost:5003/api)
 - `POST /auth/register` - User registration
 - `POST /auth/login` - User login
 - `GET /products` - Get products
@@ -306,12 +306,32 @@ npm run dev
 - `POST /orders` - Create order
 - `GET /orders` - Get user orders
 
-#### Admin API (http://localhost:5001/api)
+#### Admin API (http://localhost:3002/api)
 - `POST /auth/login` - Admin login
 - `GET /dashboard/stats` - Dashboard statistics
 - `GET /products` - Admin product management
 - `GET /orders` - Admin order management
 - `GET /customers` - Customer management
+
+## 🔗 Real-Time Synchronization
+
+The platform now features real-time synchronization between admin and customer servers:
+
+### Product Management
+- ✅ Products added in admin dashboard instantly appear in customer store
+- ✅ Product updates are reflected immediately across both platforms
+- ✅ Product deletions are synchronized in real-time
+
+### Order Management  
+- ✅ Customer orders instantly appear in admin dashboard
+- ✅ Order status updates from admin are reflected to customers
+- ✅ Real-time notifications for new orders and status changes
+
+### Technical Implementation
+- **Shared Database**: File-based database accessible by both servers
+- **Socket.IO**: Real-time bidirectional communication
+- **Event Broadcasting**: Changes are broadcast to all connected clients
+- **Cross-Server Communication**: Admin and customer servers communicate via Socket.IO
 
 ## 🔧 Development Guide
 

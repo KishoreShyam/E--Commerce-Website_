@@ -3,11 +3,12 @@ const { body, query } = require('express-validator');
 const {
   createOrder,
   getOrders,
+  getAllOrders,
   getOrder,
   updateOrderStatus,
   cancelOrder
 } = require('../controllers/orderController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validation');
 
 const router = express.Router();
@@ -17,13 +18,13 @@ const createOrderValidation = [
   body('items')
     .isArray({ min: 1 })
     .withMessage('Order must contain at least one item'),
-  body('items.*.product')
-    .isMongoId()
-    .withMessage('Invalid product ID'),
+  body('items.*.id')
+    .notEmpty()
+    .withMessage('Product ID is required'),
   body('items.*.quantity')
     .isInt({ min: 1 })
     .withMessage('Quantity must be at least 1'),
-  body('shippingAddress.street')
+  body('shippingAddress.address')
     .notEmpty()
     .withMessage('Street address is required'),
   body('shippingAddress.city')
@@ -33,7 +34,7 @@ const createOrderValidation = [
     .notEmpty()
     .withMessage('ZIP code is required'),
   body('paymentMethod')
-    .isIn(['credit', 'debit', 'paypal'])
+    .notEmpty()
     .withMessage('Invalid payment method')
 ];
 
@@ -42,8 +43,9 @@ router.use(protect);
 
 router.post('/', createOrderValidation, validate, createOrder);
 router.get('/', getOrders);
+router.get('/all', authorize('admin'), getAllOrders);
 router.get('/:id', getOrder);
-router.put('/:id/status', updateOrderStatus);
+router.put('/:id', authorize('admin'), updateOrderStatus);
 router.put('/:id/cancel', cancelOrder);
 
 module.exports = router;

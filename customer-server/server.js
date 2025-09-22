@@ -42,7 +42,8 @@ const io = socketIo(server, {
   cors: {
     origin: [
       process.env.CLIENT_URL || "http://localhost:3000",
-      process.env.ADMIN_SERVER_URL || "http://localhost:5001"
+      process.env.ADMIN_SERVER_URL || "http://localhost:5001",
+      "http://localhost:3001"
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -54,6 +55,46 @@ app.set('io', io);
 
 // Socket handling
 socketHandler(io);
+
+// Connect to admin server's socket for real-time sync
+const adminSocketClient = require('socket.io-client');
+const adminSocket = adminSocketClient(process.env.ADMIN_SERVER_URL || 'http://localhost:5001', {
+  auth: {
+    token: 'customer-server-token' // You might want to use a proper service token
+  },
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionAttempts: 5
+});
+
+adminSocket.on('connect', () => {
+  console.log('🔗 Connected to admin server for real-time sync');
+});
+
+adminSocket.on('disconnect', () => {
+  console.log('🔌 Disconnected from admin server');
+});
+
+// Listen for admin actions and broadcast to customers
+adminSocket.on('product:created', (data) => {
+  console.log('📦 Product created by admin:', data.product?.name);
+  io.emit('product:created', data);
+});
+
+adminSocket.on('product:updated', (data) => {
+  console.log('📝 Product updated by admin:', data.product?.name);
+  io.emit('product:updated', data);
+});
+
+adminSocket.on('product:deleted', (data) => {
+  console.log('🗑️ Product deleted by admin:', data.productId);
+  io.emit('product:deleted', data);
+});
+
+adminSocket.on('order:status_updated', (data) => {
+  console.log('📋 Order status updated by admin:', data.orderId, 'to', data.status);
+  io.emit('order:status_updated', data);
+});
 
 // Initialize default users on startup
 console.log('🔧 Initializing file database...');

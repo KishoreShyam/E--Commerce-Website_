@@ -7,6 +7,9 @@ class FileDB {
     this.dbPath = path.join(__dirname, '..', 'data');
     this.usersFile = path.join(this.dbPath, 'users.json');
     this.favoritesFile = path.join(this.dbPath, 'favorites.json');
+    this.productsFile = path.join(this.dbPath, 'products.json');
+    this.ordersFile = path.join(this.dbPath, 'orders.json');
+    this.categoriesFile = path.join(this.dbPath, 'categories.json');
     
     // Ensure data directory exists
     if (!fs.existsSync(this.dbPath)) {
@@ -23,6 +26,183 @@ class FileDB {
     }
     if (!fs.existsSync(this.favoritesFile)) {
       fs.writeFileSync(this.favoritesFile, JSON.stringify({}, null, 2));
+    }
+    if (!fs.existsSync(this.productsFile)) {
+      fs.writeFileSync(this.productsFile, JSON.stringify([], null, 2));
+    }
+    if (!fs.existsSync(this.ordersFile)) {
+      fs.writeFileSync(this.ordersFile, JSON.stringify([], null, 2));
+    }
+    if (!fs.existsSync(this.categoriesFile)) {
+      fs.writeFileSync(this.categoriesFile, JSON.stringify([], null, 2));
+    }
+  }
+
+  // Product operations
+  getProducts() {
+    try {
+      const data = fs.readFileSync(this.productsFile, 'utf8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error reading products file:', error);
+      return [];
+    }
+  }
+
+  saveProducts(products) {
+    try {
+      fs.writeFileSync(this.productsFile, JSON.stringify(products, null, 2));
+      return true;
+    } catch (error) {
+      console.error('Error saving products file:', error);
+      return false;
+    }
+  }
+
+  createProduct(productData) {
+    const products = this.getProducts();
+    const id = Date.now().toString();
+    
+    const product = {
+      _id: id,
+      ...productData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: productData.status || 'active'
+    };
+    
+    products.push(product);
+    this.saveProducts(products);
+    return product;
+  }
+
+  getProductById(id) {
+    const products = this.getProducts();
+    return products.find(product => product._id === id) || null;
+  }
+
+  updateProduct(id, updates) {
+    const products = this.getProducts();
+    const productIndex = products.findIndex(product => product._id === id);
+    
+    if (productIndex !== -1) {
+      products[productIndex] = {
+        ...products[productIndex],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      this.saveProducts(products);
+      return products[productIndex];
+    }
+    return null;
+  }
+
+  deleteProduct(id) {
+    const products = this.getProducts();
+    const filteredProducts = products.filter(product => product._id !== id);
+    
+    if (filteredProducts.length !== products.length) {
+      this.saveProducts(filteredProducts);
+      return true;
+    }
+    return false;
+  }
+
+  searchProducts(query) {
+    const products = this.getProducts();
+    if (!query) return products;
+    
+    const searchLower = query.toLowerCase();
+    return products.filter(product =>
+      product.name.toLowerCase().includes(searchLower) ||
+      product.description.toLowerCase().includes(searchLower) ||
+      product.brand.toLowerCase().includes(searchLower)
+    );
+  }
+
+  // Order operations
+  getOrders() {
+    try {
+      const data = fs.readFileSync(this.ordersFile, 'utf8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error reading orders file:', error);
+      return [];
+    }
+  }
+
+  saveOrders(orders) {
+    try {
+      fs.writeFileSync(this.ordersFile, JSON.stringify(orders, null, 2));
+      return true;
+    } catch (error) {
+      console.error('Error saving orders file:', error);
+      return false;
+    }
+  }
+
+  createOrder(orderData) {
+    const orders = this.getOrders();
+    const id = Date.now().toString();
+    
+    const order = {
+      _id: id,
+      orderNumber: `LUX${Date.now()}`,
+      ...orderData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: orderData.status || 'pending'
+    };
+    
+    orders.push(order);
+    this.saveOrders(orders);
+    return order;
+  }
+
+  getOrderById(id) {
+    const orders = this.getOrders();
+    return orders.find(order => order._id === id) || null;
+  }
+
+  getUserOrders(userId) {
+    const orders = this.getOrders();
+    return orders.filter(order => order.customer === userId);
+  }
+
+  updateOrder(id, updates) {
+    const orders = this.getOrders();
+    const orderIndex = orders.findIndex(order => order._id === id);
+    
+    if (orderIndex !== -1) {
+      orders[orderIndex] = {
+        ...orders[orderIndex],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      this.saveOrders(orders);
+      return orders[orderIndex];
+    }
+    return null;
+  }
+
+  // Category operations
+  getCategories() {
+    try {
+      const data = fs.readFileSync(this.categoriesFile, 'utf8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error reading categories file:', error);
+      return [];
+    }
+  }
+
+  saveCategories(categories) {
+    try {
+      fs.writeFileSync(this.categoriesFile, JSON.stringify(categories, null, 2));
+      return true;
+    } catch (error) {
+      console.error('Error saving categories file:', error);
+      return false;
     }
   }
 
@@ -182,6 +362,87 @@ class FileDB {
         role: 'customer',
         phone: '+1-555-0101'
       });
+    }
+    
+    // Initialize sample data
+    this.initializeSampleData();
+  }
+
+  initializeSampleData() {
+    // Initialize categories if empty
+    const categories = this.getCategories();
+    if (categories.length === 0) {
+      const sampleCategories = [
+        { _id: '1', name: 'Electronics', slug: 'electronics', description: 'Electronic devices and gadgets' },
+        { _id: '2', name: 'Fashion', slug: 'fashion', description: 'Clothing and accessories' },
+        { _id: '3', name: 'Home & Garden', slug: 'home-garden', description: 'Home improvement and garden supplies' },
+        { _id: '4', name: 'Sports', slug: 'sports', description: 'Sports equipment and accessories' },
+        { _id: '5', name: 'Beauty', slug: 'beauty', description: 'Beauty and personal care products' }
+      ];
+      this.saveCategories(sampleCategories);
+      console.log('✅ Initialized sample categories');
+    }
+
+    // Initialize products if empty
+    const products = this.getProducts();
+    if (products.length === 0) {
+      const sampleProducts = [
+        {
+          _id: '1',
+          name: 'Premium Wireless Headphones',
+          description: 'High-quality wireless headphones with noise cancellation',
+          price: 299.99,
+          originalPrice: 399.99,
+          category: 'Electronics',
+          brand: 'AudioTech',
+          sku: 'AT-WH-001',
+          image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500',
+          images: [{ url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500', isMain: true }],
+          inventory: { stock: 50, lowStockThreshold: 10 },
+          status: 'active',
+          featured: true,
+          rating: 4.8,
+          reviewCount: 324,
+          createdAt: new Date().toISOString()
+        },
+        {
+          _id: '2',
+          name: 'Smart Fitness Watch',
+          description: 'Advanced fitness tracking with heart rate monitoring',
+          price: 199.99,
+          originalPrice: 249.99,
+          category: 'Electronics',
+          brand: 'FitTech',
+          sku: 'FT-SW-001',
+          image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500',
+          images: [{ url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500', isMain: true }],
+          inventory: { stock: 30, lowStockThreshold: 5 },
+          status: 'active',
+          featured: true,
+          rating: 4.6,
+          reviewCount: 189,
+          createdAt: new Date().toISOString()
+        },
+        {
+          _id: '3',
+          name: 'Designer Handbag',
+          description: 'Luxury leather handbag with premium craftsmanship',
+          price: 599.99,
+          category: 'Fashion',
+          brand: 'LuxeFashion',
+          sku: 'LF-HB-001',
+          image: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=500',
+          images: [{ url: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=500', isMain: true }],
+          inventory: { stock: 25, lowStockThreshold: 5 },
+          status: 'active',
+          featured: false,
+          rating: 4.9,
+          reviewCount: 156,
+          createdAt: new Date().toISOString()
+        }
+      ];
+      this.saveProducts(sampleProducts);
+      console.log('✅ Initialized sample products');
     }
   }
 }

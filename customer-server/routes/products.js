@@ -3,6 +3,9 @@ const { body, query } = require('express-validator');
 const {
   getProducts,
   getProduct,
+  createProduct,
+  updateProduct,
+  deleteProduct,
   searchProducts,
   getProductsByCategory,
   getFeaturedProducts,
@@ -10,10 +13,39 @@ const {
   addProductView,
   getProductReviews
 } = require('../controllers/productController');
-const { protect, optionalAuth } = require('../middleware/auth');
+const { protect, optionalAuth, authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validation');
 
 const router = express.Router();
+
+// Product creation validation
+const productValidation = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Product name is required')
+    .isLength({ min: 2, max: 200 })
+    .withMessage('Product name must be between 2 and 200 characters'),
+  body('description')
+    .trim()
+    .notEmpty()
+    .withMessage('Product description is required'),
+  body('price')
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('category')
+    .trim()
+    .notEmpty()
+    .withMessage('Category is required'),
+  body('brand')
+    .trim()
+    .notEmpty()
+    .withMessage('Brand is required'),
+  body('sku')
+    .trim()
+    .notEmpty()
+    .withMessage('SKU is required')
+];
 
 // Validation rules
 const searchValidation = [
@@ -60,6 +92,11 @@ router.get('/category/:categoryId', optionalAuth, getProductsByCategory);
 router.get('/:id', optionalAuth, getProduct);
 router.get('/:id/related', optionalAuth, getRelatedProducts);
 router.get('/:id/reviews', getProductReviews);
+
+// Admin routes
+router.post('/', protect, authorize('admin'), productValidation, validate, createProduct);
+router.put('/:id', protect, authorize('admin'), productValidation, validate, updateProduct);
+router.delete('/:id', protect, authorize('admin'), deleteProduct);
 
 // Protected routes
 router.post('/:id/view', protect, addProductView);

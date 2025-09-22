@@ -14,14 +14,14 @@ const socketHandler = (io) => {
         return next(new Error('Authentication error'));
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+      const user = fileDB.findUserById(decoded.id);
       
       if (!user) {
         return next(new Error('User not found'));
       }
 
-      socket.userId = user._id.toString();
+      socket.userId = user._id;
       socket.user = user;
       next();
     } catch (error) {
@@ -41,14 +41,79 @@ const socketHandler = (io) => {
 
     // Join user to their personal room
     socket.join(`user:${socket.userId}`);
+    
+    // Join admin users to admin room for real-time updates
+    if (socket.user.role === 'admin') {
+      socket.join('admin:dashboard');
+      console.log(`🎛️ Admin ${socket.user.email} joined admin dashboard`);
+    }
 
     // Send welcome message
     socket.emit('connected', {
       message: 'Connected to LuxeCommerce real-time service',
       user: {
         id: socket.user._id,
-        name: socket.user.fullName,
+        name: `${socket.user.firstName} ${socket.user.lastName}`,
         email: socket.user.email
+      }
+    });
+
+    // Handle product management events (Admin only)
+    socket.on('product:create', (data) => {
+      if (socket.user.role === 'admin') {
+        // Broadcast to all connected clients
+        io.emit('product:created', {
+          product: data.product,
+          createdBy: socket.user.email,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    socket.on('product:update', (data) => {
+      if (socket.user.role === 'admin') {
+        // Broadcast to all connected clients
+        io.emit('product:updated', {
+          product: data.product,
+          updatedBy: socket.user.email,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    socket.on('product:delete', (data) => {
+      if (socket.user.role === 'admin') {
+        // Broadcast to all connected clients
+        io.emit('product:deleted', {
+          productId: data.productId,
+          deletedBy: socket.user.email,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    // Handle order management events
+    socket.on('order:status_update', (data) => {
+      if (socket.user.role === 'admin') {
+        const { orderId, status, note } = data;
+        
+        // Broadcast to customer who placed the order
+        io.emit('order:status_changed', {
+          orderId,
+          status,
+          note,
+          updatedBy: socket.user.email,
+          timestamp: new Date()
+        });
+        
+        // Broadcast to other admins
+        socket.to('admin:dashboard').emit('order:updated', {
+          orderId,
+          status,
+          note,
+          updatedBy: socket.user.email,
+          timestamp: new Date()
+        });
       }
     });
 
@@ -57,7 +122,7 @@ const socketHandler = (io) => {
       // Broadcast cart update to user's other sessions
       socket.to(`user:${socket.userId}`).emit('cart:updated', data);
     });
-
+      socket.to(`user:${socket.userId}`).emit('cart:updated', {
     // Handle order status updates
     socket.on('order:subscribe', (orderId) => {
       socket.join(`order:${orderId}`);
@@ -84,8 +149,8 @@ const socketHandler = (io) => {
         timestamp: new Date()
       });
     });
-
-    socket.on('chat:message', (data) => {
+      // Notify admins for analytics
+      io.to('admin:dashboard').emit('analytics:cart_activity', {
       const chatRoom = `chat:${data.chatId}`;
       
       // Broadcast message to chat room
@@ -121,24 +186,79 @@ const socketHandler = (io) => {
         productId: data.productId,
         userId: socket.userId,
         timestamp: new Date(),
-        userInfo: {
+      socket.leave(`order:${orderId}`);
           name: socket.user.fullName,
           email: socket.user.email
-        }
+    // Handle new order notifications (Customer to Admin)
+    socket.on('order:placed', (orderData) => {
+      // Notify all admins of new order
+      io.to('admin:dashboard').emit('order:new', {
+        order: orderData,
+        customer: {
+          name: `${socket.user.firstName} ${socket.user.lastName}`,
+          email: socket.user.email
+        },
+        timestamp: new Date()
       });
     });
 
-    // Handle wishlist updates
+        }
+      });
+      // Track for analytics
+      io.to('admin:dashboard').emit('analytics:product_view', {
+        userId: socket.userId,
+        productId,
+        timestamp: new Date()
+      socket.to(`user:${socket.userId}`).emit('wishlist:updated', {
+
+      socket.join(`order:${orderId}`);
+      console.log(`📦 User ${socket.user.email} subscribed to order ${orderId}`);
     socket.on('wishlist:update', (data) => {
       socket.to(`user:${socket.userId}`).emit('wishlist:updated', data);
     });
 
     // Handle notifications
-    socket.on('notification:mark_read', (notificationId) => {
+      socket.join(`chat:${chatId}`);
+      
+      // Notify admins when customer joins chat
+      if (socket.user.role === 'customer') {
+        io.to('admin:dashboard').emit('chat:customer_joined', {
+          chatId,
+          customer: {
+            name: `${socket.user.firstName} ${socket.user.lastName}`,
+            email: socket.user.email
+          },
+          timestamp: new Date()
+        });
+      }
       socket.to(`user:${socket.userId}`).emit('notification:read', {
         notificationId,
         readAt: new Date()
-      });
+      const { chatId, message, type = 'text' } = data;
+      
+      const messageData = {
+        id: Date.now().toString(),
+        chatId,
+        senderId: socket.userId,
+        senderName: `${socket.user.firstName} ${socket.user.lastName}`,
+        senderRole: socket.user.role,
+        message,
+        type,
+        timestamp: new Date()
+      };
+
+      // Emit to all participants in the chat
+      io.to(`chat:${chatId}`).emit('chat:message', messageData);
+      
+      // Notify admins of new customer messages
+      if (socket.user.role === 'customer') {
+        io.to('admin:dashboard').emit('chat:new_message', {
+          chatId,
+          customerName: `${socket.user.firstName} ${socket.user.lastName}`,
+          preview: message.substring(0, 50),
+          timestamp: new Date()
+        });
+      }
     });
 
     // Handle disconnect
@@ -147,8 +267,14 @@ const socketHandler = (io) => {
       
       // Remove from active connections
       activeConnections.delete(socket.userId);
-      
-      // Leave all chat rooms and notify
+      // Notify admins if customer disconnects
+      if (socket.user.role === 'customer') {
+        io.to('admin:dashboard').emit('customer:disconnected', {
+          userId: socket.userId,
+          email: socket.user.email,
+          timestamp: new Date()
+        });
+      }
       const rooms = Array.from(socket.rooms);
       rooms.forEach(room => {
         if (room.startsWith('chat:')) {
@@ -169,36 +295,19 @@ const socketHandler = (io) => {
     });
   });
 
-  // Helper functions for emitting events
-  const emitToUser = (userId, event, data) => {
-    io.to(`user:${userId}`).emit(event, data);
-  };
-
-  const emitToOrder = (orderId, event, data) => {
-    io.to(`order:${orderId}`).emit(event, data);
-  };
-
-  const emitToChat = (chatId, event, data) => {
-    io.to(`chat:${chatId}`).emit(event, data);
-  };
-
-  const emitToAdmin = (event, data) => {
+  // Expose helper functions for external use
+  io.broadcastToAdmins = (event, data) => {
     io.to('admin:dashboard').emit(event, data);
   };
-
-  const broadcastNotification = (notification) => {
-    if (notification.userId) {
-      emitToUser(notification.userId, 'notification:new', notification);
-    } else {
-      // Broadcast to all connected users
-      io.emit('notification:broadcast', notification);
-    }
+  
+  io.notifyOrderUpdate = (orderId, data) => {
+    io.to(`order:${orderId}`).emit('order:updated', data);
   };
-
-  // Expose helper functions
-  io.emitToUser = emitToUser;
-  io.emitToOrder = emitToOrder;
-  io.emitToChat = emitToChat;
+  
+  io.broadcastProductUpdate = (event, data) => {
+    io.emit(event, data);
+  };
+  
   io.emitToAdmin = emitToAdmin;
   io.broadcastNotification = broadcastNotification;
   io.getActiveConnections = () => activeConnections;

@@ -12,9 +12,10 @@ import {
   FiCheck,
   FiX
 } from 'react-icons/fi';
-import { useQuery } from 'react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { toast } from 'react-toastify';
 
 const OrdersContainer = styled.div`
   padding: 0;
@@ -254,8 +255,10 @@ const getStatusIcon = (status) => {
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [editingOrder, setEditingOrder] = useState(null);
+  const queryClient = useQueryClient();
 
-  const { data: ordersData, isLoading, error } = useQuery(
+  const { data: ordersData, isLoading, error, refetch } = useQuery(
     ['orders', searchQuery, statusFilter],
     () => axios.get('/api/orders', {
       params: {
@@ -269,12 +272,31 @@ const Orders = () => {
     }
   );
 
+  // Update order status mutation
+  const updateOrderMutation = useMutation(
+    ({ id, status, note }) => axios.put(`/api/orders/${id}`, { status, note }),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['orders']);
+        toast.success('Order status updated successfully!');
+        setEditingOrder(null);
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.message || 'Failed to update order status');
+      }
+    }
+  );
+
+  const handleUpdateOrderStatus = (orderId, status, note = '') => {
+    updateOrderMutation.mutate({ id: orderId, status, note });
+  };
+
   // Mock data for demonstration
   const mockOrders = [
     {
       _id: '1',
       orderNumber: '#ORD-12345',
-      customer: {
+      customerInfo: {
         firstName: 'John',
         lastName: 'Doe',
         email: 'john.doe@example.com'
@@ -286,7 +308,7 @@ const Orders = () => {
     {
       _id: '2',
       orderNumber: '#ORD-12346',
-      customer: {
+      customerInfo: {
         firstName: 'Jane',
         lastName: 'Smith',
         email: 'jane.smith@example.com'
@@ -298,7 +320,7 @@ const Orders = () => {
     {
       _id: '3',
       orderNumber: '#ORD-12347',
-      customer: {
+      customerInfo: {
         firstName: 'Mike',
         lastName: 'Johnson',
         email: 'mike.johnson@example.com'
@@ -310,7 +332,7 @@ const Orders = () => {
     {
       _id: '4',
       orderNumber: '#ORD-12348',
-      customer: {
+      customerInfo: {
         firstName: 'Sarah',
         lastName: 'Wilson',
         email: 'sarah.wilson@example.com'
@@ -322,7 +344,7 @@ const Orders = () => {
     {
       _id: '5',
       orderNumber: '#ORD-12349',
-      customer: {
+      customerInfo: {
         firstName: 'David',
         lastName: 'Brown',
         email: 'david.brown@example.com'
@@ -342,8 +364,8 @@ const Orders = () => {
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
       order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      `${order.customer.firstName} ${order.customer.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.customer.email.toLowerCase().includes(searchQuery.toLowerCase());
+      `${order.customerInfo?.firstName} ${order.customerInfo?.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.customerInfo?.email.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
     
@@ -416,11 +438,15 @@ const Orders = () => {
               <OrderId>{order.orderNumber}</OrderId>
               <CustomerInfo>
                 <CustomerName>
-                  {order.customer.firstName} {order.customer.lastName}
+                  {order.customerInfo?.firstName} {order.customerInfo?.lastName}
                 </CustomerName>
-                <CustomerEmail>{order.customer.email}</CustomerEmail>
+                <CustomerEmail>{order.customerInfo?.email}</CustomerEmail>
               </CustomerInfo>
-              <StatusBadge status={order.status}>
+              <StatusBadge 
+                status={order.status}
+                onClick={() => setEditingOrder(order)}
+                style={{ cursor: 'pointer' }}
+              >
                 {getStatusIcon(order.status)}
                 {order.status}
               </StatusBadge>
@@ -434,13 +460,99 @@ const Orders = () => {
                 <ActionButton title="View Order">
                   <FiEye />
                 </ActionButton>
-                <ActionButton title="Edit Order">
+                <ActionButton 
+                  title="Edit Order"
+                  onClick={() => setEditingOrder(order)}
+                >
                   <FiEdit />
                 </ActionButton>
               </ActionsContainer>
             </OrderRow>
           ))}
         </OrdersTable>
+      )}
+
+      {/* Order Status Update Modal */}
+      {editingOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '2rem',
+            borderRadius: '12px',
+            width: '90%',
+            maxWidth: '400px'
+          }}>
+            <h3>Update Order Status</h3>
+            <p>Order: {editingOrder.orderNumber}</p>
+            <p>Customer: {editingOrder.customerInfo?.firstName} {editingOrder.customerInfo?.lastName}</p>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              handleUpdateOrderStatus(
+                editingOrder._id,
+                formData.get('status'),
+                formData.get('note')
+              );
+            }}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label>Status</label>
+                <select 
+                  name="status" 
+                  defaultValue={editingOrder.status}
+                  style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="processing">Processing</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="delivered">Delivered</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label>Note (Optional)</label>
+                <textarea 
+                  name="note" 
+                  placeholder="Add a note about this status change..."
+                  style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', minHeight: '60px' }} 
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setEditingOrder(null)}
+                  style={{ padding: '0.75rem 1.5rem', border: '1px solid #ccc', background: 'white', borderRadius: '6px' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  disabled={updateOrderMutation.isLoading}
+                  style={{ 
+                    padding: '0.75rem 1.5rem', 
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px' 
+                  }}
+                >
+                  {updateOrderMutation.isLoading ? 'Updating...' : 'Update Status'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </OrdersContainer>
   );

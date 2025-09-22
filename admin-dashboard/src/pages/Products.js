@@ -11,9 +11,10 @@ import {
   FiPackage,
   FiDollarSign
 } from 'react-icons/fi';
-import { useQuery } from 'react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { toast } from 'react-toastify';
 
 const ProductsContainer = styled.div`
   padding: 0;
@@ -257,8 +258,11 @@ const EmptyState = styled.div`
 const Products = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const queryClient = useQueryClient();
 
-  const { data: productsData, isLoading, error } = useQuery(
+  const { data: productsData, isLoading, error, refetch } = useQuery(
     ['products', searchQuery, selectedCategory],
     () => axios.get('/api/products', {
       params: {
@@ -271,6 +275,64 @@ const Products = () => {
       keepPreviousData: true
     }
   );
+
+  // Create product mutation
+  const createProductMutation = useMutation(
+    (productData) => axios.post('/api/products', productData),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['products']);
+        toast.success('Product created successfully!');
+        setShowCreateForm(false);
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.message || 'Failed to create product');
+      }
+    }
+  );
+
+  // Update product mutation
+  const updateProductMutation = useMutation(
+    ({ id, data }) => axios.put(`/api/products/${id}`, data),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['products']);
+        toast.success('Product updated successfully!');
+        setEditingProduct(null);
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.message || 'Failed to update product');
+      }
+    }
+  );
+
+  // Delete product mutation
+  const deleteProductMutation = useMutation(
+    (id) => axios.delete(`/api/products/${id}`),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['products']);
+        toast.success('Product deleted successfully!');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.message || 'Failed to delete product');
+      }
+    }
+  );
+
+  const handleCreateProduct = (productData) => {
+    createProductMutation.mutate(productData);
+  };
+
+  const handleUpdateProduct = (id, productData) => {
+    updateProductMutation.mutate({ id, data: productData });
+  };
+
+  const handleDeleteProduct = (id) => {
+    if (window.confirm('Are you sure you want to delete this product?')) {
+      deleteProductMutation.mutate(id);
+    }
+  };
 
   // Mock data for demonstration
   const mockProducts = [
@@ -347,6 +409,7 @@ const Products = () => {
       <ProductsHeader>
         <Title>Products</Title>
         <AddButton
+          onClick={() => setShowCreateForm(true)}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >
@@ -425,6 +488,7 @@ const Products = () => {
                   </ActionButton>
                   <ActionButton className="danger">
                     <FiTrash2 />
+                    onClick={() => handleDeleteProduct(product._id)}
                     Delete
                   </ActionButton>
                 </ProductActions>
@@ -432,6 +496,119 @@ const Products = () => {
             </ProductCard>
           ))}
         </ProductsGrid>
+      )}
+
+      {/* Product Creation/Edit Modal would go here */}
+      {showCreateForm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '2rem',
+            borderRadius: '12px',
+            width: '90%',
+            maxWidth: '500px'
+          }}>
+            <h3>Add New Product</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const productData = {
+                name: formData.get('name'),
+                description: formData.get('description'),
+                price: parseFloat(formData.get('price')),
+                category: formData.get('category'),
+                brand: formData.get('brand'),
+                sku: formData.get('sku'),
+                image: formData.get('image'),
+                inventory: {
+                  stock: parseInt(formData.get('stock')) || 0,
+                  lowStockThreshold: 10
+                },
+                status: 'active',
+                featured: formData.get('featured') === 'on'
+              };
+              handleCreateProduct(productData);
+            }}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label>Product Name</label>
+                <input name="name" type="text" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label>Description</label>
+                <textarea name="description" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', minHeight: '80px' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label>Price</label>
+                  <input name="price" type="number" step="0.01" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+                <div>
+                  <label>Stock</label>
+                  <input name="stock" type="number" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label>Category</label>
+                  <input name="category" type="text" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+                <div>
+                  <label>Brand</label>
+                  <input name="brand" type="text" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label>SKU</label>
+                  <input name="sku" type="text" required style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+                <div>
+                  <label>Image URL</label>
+                  <input name="image" type="url" style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }} />
+                </div>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label>
+                  <input name="featured" type="checkbox" style={{ marginRight: '0.5rem' }} />
+                  Featured Product
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowCreateForm(false)}
+                  style={{ padding: '0.75rem 1.5rem', border: '1px solid #ccc', background: 'white', borderRadius: '6px' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  disabled={createProductMutation.isLoading}
+                  style={{ 
+                    padding: '0.75rem 1.5rem', 
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px' 
+                  }}
+                >
+                  {createProductMutation.isLoading ? 'Creating...' : 'Create Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </ProductsContainer>
   );

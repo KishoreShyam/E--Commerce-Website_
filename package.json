@@ -4,15 +4,16 @@
   "description": "Premium E-Commerce Platform with Advanced Features",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:client\" \"npm run dev:customer-server\" \"npm run dev:admin-server\"",
-    "dev:client": "cd client && npm run dev",
-    "dev:customer-server": "cd customer-server && npm run dev",
-    "dev:admin-server": "cd admin-server && npm run dev",
+    "dev": "concurrently \"npm run dev:customer-server\" \"npm run dev:admin-server\" \"npm run dev:client\" \"npm run dev:admin-dashboard\"",
+    "dev:customer-server": "cd customer-server && PORT=5003 npm run dev",
+    "dev:admin-server": "cd admin-server && PORT=3002 npm run dev",
+    "dev:client": "cd client && PORT=3003 npm start",
+    "dev:admin-dashboard": "cd admin-dashboard && PORT=3002 npm start",
     "install:all": "npm install && cd client && npm install && cd ../customer-server && npm install && cd ../admin-server && npm install",
     "build": "cd client && npm run build",
     "start": "concurrently \"npm run start:customer-server\" \"npm run start:admin-server\"",
-    "start:customer-server": "cd customer-server && npm start",
-    "start:admin-server": "cd admin-server && npm start"
+    "start:customer-server": "cd customer-server && PORT=5003 npm start",
+    "start:admin-server": "cd admin-server && PORT=3002 npm start"
   },
   "keywords": ["ecommerce", "react", "nodejs", "mongodb", "premium"],
   "author": "LuxeCommerce Team",
